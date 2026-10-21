@@ -7,43 +7,43 @@
 <style>
   /* Layout: nautical chart plate. Name and contact ledger top-left, sea soundings fill the lower part of the screen. */
   :root {
-    --bg: #e9f0e8;
-    --surface: #f6faf4;
-    --fg: #0f2a21;
-    --muted: #4a6358;
-    --accent: #0a7d56;
+    --bg: #efe9fa;
+    --surface: #f8f5fe;
+    --fg: #2b1d4d;
+    --muted: #65568a;
+    --accent: #7b4fd6;
     --accent-ink: #ffffff;
-    --brass: #8f6410;
-    --line: rgba(15, 42, 33, .18);
-    --hover: rgba(10, 125, 86, .09);
+    --brass: #a56fd1;
+    --line: rgba(43, 29, 77, .18);
+    --hover: rgba(123, 79, 214, .09);
     --font-display: "Unbounded", "Onest", system-ui, sans-serif;
     --font-body: "Onest", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #0a1d1a;
-      --surface: #102a25;
-      --fg: #e4f2e9;
-      --muted: #9db8ab;
-      --accent: #46d6a0;
-      --accent-ink: #06231a;
-      --brass: #d9b25c;
-      --line: rgba(228, 242, 233, .2);
-      --hover: rgba(70, 214, 160, .11);
+      --bg: #1b1430;
+      --surface: #271e45;
+      --fg: #efe8ff;
+      --muted: #b8a9de;
+      --accent: #c4a7ff;
+      --accent-ink: #1b1033;
+      --brass: #d9b3ff;
+      --line: rgba(239, 232, 255, .2);
+      --hover: rgba(196, 167, 255, .12);
       color-scheme: dark;
     }
   }
   :root[data-theme="dark"] {
-    --bg: #0a1d1a;
-    --surface: #102a25;
-    --fg: #e4f2e9;
-    --muted: #9db8ab;
-    --accent: #46d6a0;
-    --accent-ink: #06231a;
-    --brass: #d9b25c;
-    --line: rgba(228, 242, 233, .2);
-    --hover: rgba(70, 214, 160, .11);
+    --bg: #1b1430;
+    --surface: #271e45;
+    --fg: #efe8ff;
+    --muted: #b8a9de;
+    --accent: #c4a7ff;
+    --accent-ink: #1b1033;
+    --brass: #d9b3ff;
+    --line: rgba(239, 232, 255, .2);
+    --hover: rgba(196, 167, 255, .12);
     color-scheme: dark;
   }
 
@@ -140,7 +140,7 @@
 
 <div class="wrap">
   <div class="top">
-    <button class="tool" id="sound" type="button" aria-pressed="false" aria-label="Включить эмбиент"><span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Звук</button>
+    <button class="tool" id="sound" type="button" aria-pressed="false" aria-label="Включить музыку"><span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Звук</button>
     <button class="tool" id="theme" type="button" aria-label="Сменить тему оформления">Тема</button>
   </div>
 
@@ -217,7 +217,7 @@
   /* ---------- sea: stroke-only ridge lines, grouped into 4 batched strokes ---------- */
   const cv = $('#sea'), ctx = cv.getContext('2d');
   let W = 0, H = 0, DPR = 1, N = 0, TOP = 0, SP = 0;
-  let ac_ = '#46d6a0';
+  let ac_ = '#c4a7ff';
   let mx = -9999, my = -9999, tx = -9999, ty = -9999;
   const ripples = [];
 
@@ -286,91 +286,41 @@
   readColors(); resize();
   if (!reduce) requestAnimationFrame(t => { last = t; frame(t); });
 
-  /* ---------- audio: ambient pads, sea noise, soft bells ---------- */
-  let ac = null, sfx = null, master = null, bus = null, playing = false, timers = [];
-  const midi = n => 440 * Math.pow(2, (n - 69) / 12);
-  const CHORDS = [[45, 52, 57, 60, 64], [41, 48, 53, 57, 60], [48, 55, 60, 64], [43, 50, 55, 59, 62]];
-  const PENT = [69, 72, 74, 76, 79, 81, 84];
-
-  function ensureAc() {
-    if (!ac) {
-      ac = new (window.AudioContext || window.webkitAudioContext)();
-      sfx = ac.createGain(); sfx.gain.value = 0.9; sfx.connect(ac.destination);
-    }
-    if (ac.state === 'suspended') ac.resume();
-  }
-  function buildAmbient() {
-    if (master) return;
-    master = ac.createGain(); master.gain.value = 0; master.connect(ac.destination);
-    bus = ac.createGain(); bus.connect(master);
-    const delay = ac.createDelay(1); delay.delayTime.value = 0.46;
-    const fb = ac.createGain(); fb.gain.value = 0.4;
-    const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2200;
-    bus.connect(delay); delay.connect(lp); lp.connect(fb); fb.connect(delay); lp.connect(master);
-    const len = ac.sampleRate * 4, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
-    let l = 0;
-    for (let i = 0; i < len; i++) { l = (l + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = l * 3.5; }
-    const src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
-    const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 700;
-    const ng = ac.createGain(); ng.gain.value = 0.05;
-    const lfo = ac.createOscillator(); lfo.frequency.value = 0.11;
-    const lg = ac.createGain(); lg.gain.value = 0.035;
-    lfo.connect(lg); lg.connect(ng.gain);
-    src.connect(f); f.connect(ng); ng.connect(master);
-    src.start(); lfo.start();
-  }
-  function pad(freq, t0, dur) {
-    [-7, 7].forEach(det => {
-      const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.value = freq; o.detune.value = det;
-      const fl = ac.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = freq < 150 ? 500 : 1100;
-      const g = ac.createGain();
-      g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.028, t0 + 2.6);
-      g.gain.setValueAtTime(0.028, t0 + dur - 0.5); g.gain.linearRampToValueAtTime(0, t0 + dur + 3);
-      o.connect(fl); fl.connect(g); g.connect(bus); o.start(t0); o.stop(t0 + dur + 3.2);
-    });
-  }
-  function chord(i) {
-    if (!playing) return;
-    const t0 = ac.currentTime + 0.05;
-    CHORDS[i].forEach(n => pad(midi(n), t0, 8));
-    timers.push(setTimeout(() => chord((i + 1) % CHORDS.length), 7800));
-  }
-  function bell() {
-    if (!playing) return;
-    const t0 = ac.currentTime + 0.02, f = midi(PENT[Math.floor(Math.random() * PENT.length)]);
-    [[1, 0.05], [2, 0.012], [3, 0.005]].forEach(([m, a]) => {
-      const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = f * m;
-      const g = ac.createGain();
-      g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(a, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.2);
-      o.connect(g); g.connect(bus); o.start(t0); o.stop(t0 + 3.3);
-    });
-    timers.push(setTimeout(bell, 1800 + Math.random() * 2800));
-  }
+  /* ---------- audio: Pastel Ghost — Iris (файл лежит рядом с index.html) ---------- */
+  const audio = new Audio('Pastel_Ghost-Iris.mp3');
+  audio.loop = true; audio.preload = 'none'; audio.volume = 0;
+  const VOL = 0.7;
+  let playing = false, wasPlaying = false, fade = null;
   const btn = $('#sound');
+
   function ui(on) {
     btn.setAttribute('aria-pressed', String(on));
-    btn.setAttribute('aria-label', on ? 'Выключить эмбиент' : 'Включить эмбиент');
+    btn.setAttribute('aria-label', on ? 'Выключить музыку' : 'Включить музыку');
+  }
+  function fadeTo(target, ms, done) {
+    clearInterval(fade);
+    const from = audio.volume, t0 = performance.now();
+    fade = setInterval(() => {
+      const p = Math.min((performance.now() - t0) / ms, 1);
+      audio.volume = Math.max(0, Math.min(1, from + (target - from) * p));
+      if (p >= 1) { clearInterval(fade); if (done) done(); }
+    }, 30);
   }
   function play() {
-    try {
-      ensureAc(); buildAmbient();
-      playing = true;
-      master.gain.cancelScheduledValues(ac.currentTime);
-      master.gain.setTargetAtTime(0.8, ac.currentTime, 0.6);
-      chord(0); timers.push(setTimeout(bell, 1500));
-      ui(true);
-    } catch (e) { toast('Не удалось запустить звук'); }
+    playing = true; ui(true);
+    audio.play().then(() => fadeTo(VOL, 1200)).catch(() => {
+      playing = false; ui(false); toast('Не удалось запустить музыку');
+    });
   }
   function pause() {
-    if (!ac || !master) return;
-    playing = false; timers.forEach(clearTimeout); timers = [];
-    master.gain.setTargetAtTime(0, ac.currentTime, 0.4);
-    ui(false);
+    playing = false; ui(false);
+    fadeTo(0, 500, () => { if (!playing) audio.pause(); });
   }
+  audio.addEventListener('error', () => { playing = false; ui(false); toast('Файл Pastel_Ghost-Iris.mp3 не найден'); });
   btn.addEventListener('click', () => playing ? pause() : play());
   document.addEventListener('visibilitychange', () => {
-    if (!ac || !playing) return;
-    document.hidden ? ac.suspend() : ac.resume();
+    if (document.hidden) { wasPlaying = playing && !audio.paused; if (wasPlaying) audio.pause(); }
+    else if (wasPlaying) { wasPlaying = false; audio.play().catch(() => {}); }
   });
 
   /* ---------- discord copy ---------- */
