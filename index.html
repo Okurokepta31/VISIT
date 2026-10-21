@@ -87,9 +87,19 @@
 
   .name {
     margin: 0; font-family: var(--font-display); font-weight: 700; line-height: 1;
-    font-size: clamp(2.3rem, 10.4vw, 7.2rem); letter-spacing: -.02em;
-    color: var(--accent); overflow-wrap: anywhere; text-wrap: balance;
+    font-size: clamp(2rem, 9.4vw, 7.2rem); letter-spacing: -.02em;
+    color: var(--accent); white-space: nowrap;
   }
+  .ch { display: inline-block; animation: wave 3.4s ease-in-out infinite; animation-delay: calc(var(--i) * -.22s); will-change: transform; }
+  @keyframes wave {
+    0%, 100% { transform: translateY(.035em) rotate(-1.2deg); }
+    50% { transform: translateY(-.045em) rotate(1.2deg); }
+  }
+  .r34 { font: inherit; letter-spacing: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; display: inline-block; -webkit-tap-highlight-color: transparent; }
+  .r34:hover { color: var(--brass); }
+  .rr { display: inline-block; }
+  .rr.pop { animation: pop .5s cubic-bezier(.2, 1.4, .4, 1) both; transform-origin: 50% 80%; }
+  @keyframes pop { from { opacity: 0; transform: scale(.2) rotate(-25deg); } to { opacity: 1; transform: none; } }
   .lead { margin: 14px 0 0; max-width: 30ch; font-size: clamp(1.05rem, 2.2vw, 1.35rem); line-height: 1.45; color: var(--muted); }
 
   .ledger {
@@ -133,7 +143,7 @@
     .ledger { animation-delay: .16s; }
     @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
   }
-  @media (prefers-reduced-motion: reduce) { .tool[aria-pressed="true"] .eq i { animation: none; transform: scaleY(.6); } }
+  @media (prefers-reduced-motion: reduce) { .tool[aria-pressed="true"] .eq i { animation: none; transform: scaleY(.6); } .ch, .rr.pop { animation: none; } }
 </style>
 
 <canvas id="sea" aria-hidden="true"></canvas>
@@ -145,7 +155,7 @@
   </div>
 
   <header>
-    <h1 class="name">Emerald34</h1>
+    <h1 class="name" id="name" aria-label="Emerald34"><span aria-hidden="true"><span class="ch" style="--i:0">E</span><span class="ch" style="--i:1">m</span><span class="ch" style="--i:2">e</span><span class="ch" style="--i:3">r</span><span class="ch" style="--i:4">a</span><span class="ch" style="--i:5">l</span><span class="ch" style="--i:6">d</span><span class="rr" id="rr" hidden><span class="ch" style="--i:7">R</span></span></span><button class="r34" id="r34" type="button" aria-pressed="false" aria-label="34: нажми"><span class="ch" style="--i:8" aria-hidden="true">3</span><span class="ch" style="--i:9" aria-hidden="true">4</span></button></h1>
     <p class="lead">Этот дом запривачен</p>
   </header>
 
@@ -328,6 +338,17 @@
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { wasPlaying = playing && !audio.paused; if (wasPlaying) audio.pause(); }
     else if (wasPlaying) { wasPlaying = false; audio.play().catch(() => {}); }
+  });
+
+  /* ---------- Emerald34 <-> EmeraldR34 ---------- */
+  const r34 = $('#r34'), rr = $('#rr'), nameEl = $('#name');
+  r34.addEventListener('click', () => {
+    const on = rr.hidden;
+    rr.hidden = !on;
+    r34.setAttribute('aria-pressed', String(on));
+    nameEl.setAttribute('aria-label', on ? 'EmeraldR34' : 'Emerald34');
+    rr.classList.remove('pop');
+    if (on && !reduce) { void rr.offsetWidth; rr.classList.add('pop'); }
   });
 
   /* ---------- discord copy ---------- */
