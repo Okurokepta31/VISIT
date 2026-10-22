@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html><html data-theme="dark"><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>Emerald34</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -105,8 +105,9 @@
   .ledger {
     list-style: none; margin: 0; padding: 0;
     width: min(540px, 100%);
-    background: var(--surface); border: 1px solid var(--line); border-radius: 4px;
-    box-shadow: 0 1px 0 var(--line);
+    background: color-mix(in srgb, var(--surface) 78%, transparent); border: 1px solid var(--line); border-radius: 10px;
+    -webkit-backdrop-filter: blur(14px) saturate(1.2); backdrop-filter: blur(14px) saturate(1.2);
+    box-shadow: 0 10px 40px rgba(20, 10, 50, .18);
   }
   .ledger li + li { border-top: 1px solid var(--line); }
   .row {
@@ -216,85 +217,241 @@
   }
 
   /* ---------- theme ---------- */
+  let seaTheme = () => {};
   const darkMq = matchMedia('(prefers-color-scheme: dark)');
   const currentTheme = () => root.dataset.theme || (darkMq.matches ? 'dark' : 'light');
   $('#theme').addEventListener('click', () => {
     root.dataset.theme = currentTheme() === 'dark' ? 'light' : 'dark';
-    readColors(); if (reduce) draw(0);
+    seaTheme();
   });
-  if (darkMq.addEventListener) darkMq.addEventListener('change', () => { readColors(); if (reduce) draw(0); });
+  if (darkMq.addEventListener) darkMq.addEventListener('change', () => seaTheme());
 
-  /* ---------- sea: stroke-only ridge lines, grouped into 4 batched strokes ---------- */
-  const cv = $('#sea'), ctx = cv.getContext('2d');
-  let W = 0, H = 0, DPR = 1, N = 0, TOP = 0, SP = 0;
-  let ac_ = '#c4a7ff';
-  let mx = -9999, my = -9999, tx = -9999, ty = -9999;
+  /* ---------- sea: WebGL — солнце, лучи, реалистичная вода (запасной 2D-вариант, если нет WebGL) ---------- */
+  const cv = $('#sea');
+  const gl = (() => { try { return cv.getContext('webgl', { antialias: false, alpha: false, powerPreference: 'high-performance' }); } catch (e) { return null; } })();
+  let W = 0, H = 0, TOP = 0;
   const ripples = [];
+  let mx = -9999, my = -9999, tx = -9999, ty = -9999, seen = 0;
 
-  function readColors() {
-    ac_ = getComputedStyle(root).getPropertyValue('--accent').trim() || ac_;
-  }
-  function resize() {
-    DPR = Math.min(window.devicePixelRatio || 1, 1.5);
-    W = window.innerWidth; H = window.innerHeight;
-    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    const narrow = W < 700;
-    N = narrow || H < 600 ? 14 : 20;
-    TOP = H * (narrow ? 0.52 : 0.4);
-    SP = (H - TOP + 20) / (N - 1);
-    if (reduce) draw(0);
-  }
-  const lineY = (i, x, t) => {
-    const k = i / (N - 1), amp = SP * (0.25 + 0.55 * k);
-    return TOP + SP * i + amp * (0.6 * Math.sin(x * 0.006 + t * 0.5 + i * 0.35) + 0.4 * Math.sin(x * 0.013 - t * 0.8 + i * 0.6));
-  };
+  if (gl) {
+    const VS = 'attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
+    const FS = `
+precision highp float;
+uniform vec2 R; uniform float T, D, HZ; uniform vec2 SUN; uniform vec3 RP[6]; uniform vec3 MS;
+const float F = .9; const float CH = 1.6;
 
-  function draw(t) {
-    ctx.clearRect(0, 0, W, H);
-    const paths = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
-    const STEP = W < 700 ? 14 : 12;
-    for (let i = 0; i < N; i++) {
-      const k = i / (N - 1), P = paths[Math.min(3, (k * 4) | 0)];
-      const base = TOP + SP * i, near = Math.abs(base - my) < 160;
-      for (let x = -STEP; x <= W + STEP; x += STEP) {
-        let y = lineY(i, x, t);
-        if (near) { const dx = x - mx, dy = base - my; y -= 18 * Math.exp(-(dx * dx) / 18000 - (dy * dy) / 9000) * Math.sin(t * 3 + x * 0.04); }
-        x === -STEP ? P.moveTo(x, y) : P.lineTo(x, y);
+float hash(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
+float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
+  return mix(mix(hash(i), hash(i+vec2(1.,0.)), f.x), mix(hash(i+vec2(0.,1.)), hash(i+vec2(1.,1.)), f.x), f.y); }
+float fbm3(vec2 p){ float a=.5, s=0.; for(int i=0;i<3;i++){ s+=a*noise(p); p=p*2.03+vec2(17.1,9.2); a*=.5; } return s; }
+float fbm5(vec2 p){ float a=.5, s=0.; for(int i=0;i<5;i++){ s+=a*noise(p); p=p*2.03+vec2(17.1,9.2); a*=.5; } return s; }
+
+vec3 sunColor(){ return mix(vec3(1., .95, .82), vec3(1., .62, .38), D); }
+
+vec3 sky(vec3 rd, vec3 sd){
+  float e = max(rd.y, 0.);
+  vec3 hor = mix(vec3(1., .86, .76), vec3(.80, .38, .44), D);
+  vec3 mid = mix(vec3(.74, .78, .98), vec3(.34, .22, .54), D);
+  vec3 top = mix(vec3(.66, .70, .96), vec3(.07, .05, .19), D);
+  vec3 c = mix(hor, mid, smoothstep(0., .22, e));
+  c = mix(c, top, smoothstep(.12, .95, e));
+  float s = max(dot(rd, sd), 0.);
+  vec3 sc = sunColor();
+  float gk = mix(.38, 1., D);
+  c += sc*gk*(pow(s, 5.)*.30 + pow(s, 40.)*.55 + pow(s, 400.)*.8);
+  c += sc*smoothstep(.99935, .99975, s)*7.;
+  return c;
+}
+float cloudMask(vec3 rd){
+  vec2 cp = rd.xz/(abs(rd.y)+.14)*1.3 + vec2(T*.02, 0.);
+  float c = fbm5(cp*vec2(.9, 1.8));
+  return smoothstep(.5, .86, c)*smoothstep(0., .16, rd.y);
+}
+vec3 skyFull(vec3 rd, vec3 sd){
+  vec3 c = sky(rd, sd);
+  float cl = cloudMask(rd);
+  float s = max(dot(rd, sd), 0.);
+  vec3 cc = mix(vec3(1., .96, .98), vec3(.62, .42, .66), D);
+  vec3 lit = mix(c*1.04 + .08, cc, .65) + sunColor()*pow(s, 6.)*.55;
+  return mix(c, lit, cl*.72);
+}
+float rays(vec2 p){
+  vec2 d = p - SUN; float r = length(d); vec2 u = d/(r+1e-4);
+  float n = noise(u*5.+vec2(T*.03, 0.))*.5 + noise(u*13.-vec2(0., T*.05)+7.)*.3 + noise(u*31.+vec2(T*.04, 3.))*.2;
+  n = smoothstep(.38, .8, n);
+  float sh = .75 + .25*sin(T*.5 + u.x*9. + u.y*5.);
+  return n*sh*(exp(-r*1.7)*.9 + exp(-r*.45)*.25);
+}
+void ripple(vec2 P, vec3 rp, inout vec2 g){
+  if(rp.z < 0. || rp.z >= 1.) return;
+  float dyc = HZ - rp.y; if(dyc < .004) return;
+  vec2 Pc = vec2(rp.x, F)/dyc*CH;
+  vec2 dv = P - Pc; float d = length(dv) + 1e-3;
+  float ring = rp.z*3.2;
+  float env = exp(-pow((d-ring)*1.4, 2.))*(1.-rp.z);
+  g += dv/d*(-.55)*sin((d-ring)*9.)*env;
+}
+void main(){
+  vec2 p = (gl_FragCoord.xy - .5*R)/R.y;
+  vec3 sd = normalize(vec3(SUN.x, SUN.y-HZ, F));
+  vec3 sc = sunColor();
+  float dyA = HZ - p.y;
+  vec3 col;
+  if(dyA <= 0.){
+    vec3 rd = normalize(vec3(p.x, -dyA, F));
+    col = skyFull(rd, sd);
+    float cl = cloudMask(rd);
+    col += sc*rays(p)*mix(.5, .6, D)*(1. - .55*cl);
+  } else {
+    float dy = max(dyA, 1e-4);
+    vec2 P = vec2(p.x, F)/dy*CH;
+    float dist = P.y;
+    float fp = dist*dist/(F*CH*R.y);
+    float h = 0.; vec2 g = vec2(0.);
+    for(int i=0;i<7;i++){
+      float fi = float(i);
+      float fr = .9*pow(1.5, fi);
+      float ang = 1.5708 + sin(fi*2.3+1.)*.85;
+      vec2 k = fr*vec2(cos(ang), sin(ang));
+      float amp = .11/pow(fr, 1.05);
+      float w = sqrt(fr*9.8)*.55;
+      float ph = dot(k, P) + T*w;
+      float fade = 1./(1. + pow(fr*fp*.6, 2.));
+      g += amp*k*cos(ph)*fade; h += amp*sin(ph)*fade;
+    }
+    vec2 Q = P*2.3 + vec2(0., T*.5);
+    float n0 = fbm3(Q);
+    vec2 dn = vec2(fbm3(Q+vec2(.04, 0.)) - n0, fbm3(Q+vec2(0., .04)) - n0)/.04;
+    g += dn*.07/(1. + pow(2.3*fp*.6*2., 2.));
+    for(int i=0;i<6;i++) ripple(P, RP[i], g);
+    vec3 n = normalize(vec3(-g.x, 1., -g.y));
+    vec3 rd = normalize(vec3(p.x, -dy, F));
+    vec3 r = reflect(rd, n); r.y = max(r.y, .02); r = normalize(r);
+    float ndv = clamp(dot(n, -rd), 0., 1.);
+    float fres = min(.03 + .98*pow(1. - ndv, 5.)*1.5 + .03, 1.);
+    vec3 refl = skyFull(r, sd);
+    vec3 shallow = mix(vec3(.22, .62, .74), vec3(.08, .22, .42), D);
+    vec3 deep = mix(vec3(.07, .20, .46), vec3(.02, .04, .17), D);
+    float diff = clamp(dot(n, sd)*.5 + .5, 0., 1.);
+    vec3 body = mix(deep, shallow, clamp(.30 + h*2.4 + diff*.35, 0., 1.));
+    body += vec3(.05, .36, .34)*pow(clamp(h*5. + .5, 0., 1.), 3.)*(1. - D*.6)*.45/(1. + dist*.05);
+    // мягкие каустики у берега кадра
+    float cau = pow(1. - abs(noise(P*3.2 + vec2(T*.3, -T*.2))*2. - 1.), 7.);
+    body += sc*cau*.07*exp(-dist*.25);
+    col = mix(body, refl, fres);
+    float fm = fbm3(P*1.4 + vec2(0., T*.25));
+    fm = smoothstep(.64, .82, fm + h*1.6)*exp(-dist*.05);
+    col = mix(col, mix(vec3(.93, .94, 1.), vec3(.45, .38, .65), D), fm*.35);
+    vec3 hzc = skyFull(normalize(vec3(p.x, .02, F)), sd);
+    col = mix(col, hzc, (1. - exp(-dist*.016))*.85);
+    float s = max(dot(r, sd), 0.);
+    col += sc*mix(.55, 1., D)*(pow(s, 220.)*2.2 + pow(s, 30.)*.35);
+    col = mix(hzc, col, smoothstep(0., .006, dyA));
+    col += sc*rays(p)*.28*exp(-dyA*7.);
+  }
+  col *= 1. - .22*dot(p*vec2(.7, 1.), p*vec2(.7, 1.))*.8;
+  vec3 kn = .8 + .2*(1. - exp(-(col - .8)/.2));
+  col = mix(col, kn, step(.8, col));
+  col += (hash(gl_FragCoord.xy + T) - .5)/255.;
+  gl_FragColor = vec4(col, 1.);
+}`;
+    const mk = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s)); return s; };
+    const pr = gl.createProgram();
+    gl.attachShader(pr, mk(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, mk(gl.FRAGMENT_SHADER, FS));
+    gl.linkProgram(pr); gl.useProgram(pr);
+    const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(pr, 'a'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    const U = n => gl.getUniformLocation(pr, n);
+    const uR = U('R'), uT = U('T'), uD = U('D'), uHZ = U('HZ'), uSUN = U('SUN'), uRP = U('RP'), uMS = U('MS');
+    let Dcur = currentTheme() === 'dark' ? 1 : 0, Dtar = Dcur, DPR = 1, HZ = 0, SUNP = [0, 0];
+
+    function resize() {
+      const narrow = window.innerWidth < 700;
+      DPR = Math.min(window.devicePixelRatio || 1, narrow ? 1 : 1.25);
+      W = window.innerWidth; H = window.innerHeight;
+      cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+      gl.viewport(0, 0, cv.width, cv.height);
+      TOP = H * (narrow ? 0.46 : 0.4);
+      HZ = 0.5 - TOP / H;
+      const asp = W / H;
+      SUNP = [asp * (narrow ? 0.12 : 0.2), HZ + (narrow ? 0.2 : 0.23)];
+      if (reduce) draw(0);
+    }
+    const toP = (x, y) => [(x - W / 2) / H, 0.5 - y / H];
+    const rp = new Float32Array(18);
+    function draw(t) {
+      gl.uniform2f(uR, cv.width, cv.height); gl.uniform1f(uT, t); gl.uniform1f(uD, Dcur); gl.uniform1f(uHZ, HZ);
+      gl.uniform2f(uSUN, SUNP[0], SUNP[1]);
+      rp.fill(-1);
+      ripples.slice(0, 6).forEach((r, i) => { const q = toP(r.x, r.y); rp[i * 3] = q[0]; rp[i * 3 + 1] = q[1]; rp[i * 3 + 2] = r.t; });
+      gl.uniform3fv(uRP, rp);
+      const m = toP(mx, my);
+      gl.uniform3f(uMS, m[0], m[1], 0.);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    let last = 0, clock = 0;
+    function frame(now) {
+      requestAnimationFrame(frame);
+      const dt = Math.min((now - last) / 1000, 0.1); last = now;
+      clock += dt;
+      for (const r of ripples) r.t += dt / 3.2;
+      for (let i = ripples.length - 1; i >= 0; i--) if (ripples[i].t >= 1) ripples.splice(i, 1);
+      mx += (tx - mx) * 0.12; my += (ty - my) * 0.12;
+      Dcur += (Dtar - Dcur) * Math.min(1, dt * 3);
+      draw(clock);
+    }
+    seaTheme = () => { Dtar = currentTheme() === 'dark' ? 1 : 0; if (reduce) { Dcur = Dtar; draw(0); } };
+    window.addEventListener('pointermove', e => {
+      if (mx < -999) { mx = e.clientX; my = e.clientY; }
+      tx = e.clientX; ty = e.clientY; seen = 1;
+    }, { passive: true });
+    window.addEventListener('pointerdown', e => {
+      if (!reduce && e.clientY > TOP + 4) ripples.push({ x: e.clientX, y: e.clientY, t: 0 });
+    }, { passive: true });
+    window.addEventListener('resize', resize);
+    window.__sea = { setT: t => { clock = t; } };
+    resize();
+    if (!reduce) requestAnimationFrame(t => { last = t; frame(t); });
+  } else {
+    /* ---- запасной вариант без WebGL ---- */
+    const ctx = cv.getContext('2d');
+    let DPR = 1, N = 0, SP = 0, ac_ = '#c4a7ff';
+    const readColors = () => { ac_ = getComputedStyle(root).getPropertyValue('--accent').trim() || ac_; };
+    function resize() {
+      DPR = Math.min(window.devicePixelRatio || 1, 1.5);
+      W = window.innerWidth; H = window.innerHeight;
+      cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      const narrow = W < 700;
+      N = narrow || H < 600 ? 14 : 20;
+      TOP = H * (narrow ? 0.52 : 0.4);
+      SP = (H - TOP + 20) / (N - 1);
+      if (reduce) draw(0);
+    }
+    const lineY = (i, x, t) => {
+      const k = i / (N - 1), amp = SP * (0.25 + 0.55 * k);
+      return TOP + SP * i + amp * (0.6 * Math.sin(x * 0.006 + t * 0.5 + i * 0.35) + 0.4 * Math.sin(x * 0.013 - t * 0.8 + i * 0.6));
+    };
+    function draw(t) {
+      ctx.clearRect(0, 0, W, H);
+      const paths = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
+      const STEP = W < 700 ? 14 : 12;
+      for (let i = 0; i < N; i++) {
+        const k = i / (N - 1), P = paths[Math.min(3, (k * 4) | 0)];
+        for (let x = -STEP; x <= W + STEP; x += STEP) { const y = lineY(i, x, t); x === -STEP ? P.moveTo(x, y) : P.lineTo(x, y); }
       }
+      ctx.strokeStyle = ac_; ctx.lineJoin = 'round';
+      for (let b = 0; b < 4; b++) { ctx.globalAlpha = 0.2 + 0.2 * b; ctx.lineWidth = 1.1 + 0.25 * b; ctx.stroke(paths[b]); }
+      ctx.globalAlpha = 1;
     }
-    ctx.strokeStyle = ac_; ctx.lineJoin = 'round';
-    for (let b = 0; b < 4; b++) { ctx.globalAlpha = 0.2 + 0.2 * b; ctx.lineWidth = 1.1 + 0.25 * b; ctx.stroke(paths[b]); }
-    for (let i = ripples.length - 1; i >= 0; i--) {
-      const r = ripples[i], p = r.t;
-      ctx.globalAlpha = (1 - p) * 0.55; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.ellipse(r.x, r.y, 10 + p * 150, 3 + p * 42, 0, 0, 6.2832); ctx.stroke();
-      if (p >= 1) ripples.splice(i, 1);
-    }
-    ctx.globalAlpha = 1;
+    let last = 0, clock = 0;
+    function frame(now) { requestAnimationFrame(frame); if (now - last < 15) return; clock += Math.min((now - last) / 1000, 0.1); last = now; draw(clock); }
+    seaTheme = () => { readColors(); if (reduce) draw(0); };
+    window.addEventListener('resize', resize);
+    readColors(); resize();
+    if (!reduce) requestAnimationFrame(t => { last = t; frame(t); });
   }
-
-  let last = 0, clock = 0;
-  function frame(now) {
-    requestAnimationFrame(frame);
-    if (now - last < 15) return;
-    const dt = Math.min((now - last) / 1000, 0.1); last = now;
-    clock += dt;
-    for (const r of ripples) r.t += dt / 1.4;
-    mx += (tx - mx) * 0.12; my += (ty - my) * 0.12;
-    draw(clock);
-  }
-
-  window.addEventListener('pointermove', e => {
-    if (mx < -999) { mx = e.clientX; my = e.clientY; }
-    tx = e.clientX; ty = e.clientY;
-  }, { passive: true });
-  window.addEventListener('pointerdown', e => {
-    if (!reduce && e.clientY > TOP - 40) ripples.push({ x: e.clientX, y: e.clientY, t: 0 });
-  }, { passive: true });
-  window.addEventListener('resize', resize);
-  readColors(); resize();
-  if (!reduce) requestAnimationFrame(t => { last = t; frame(t); });
 
   /* ---------- audio: Pastel Ghost — Iris (встроена в страницу, отдельный файл не нужен) ---------- */
   const audio = new Audio();
